@@ -233,36 +233,6 @@ fileType: ["application/pdf"]  # Only PDFs
 
 ---
 
-## 🧪 Test It Out
-
-### Test 1: Upload a Document
-```
-1. Go to http://localhost:3000
-2. Click "Upload Documents" section
-3. Select a PDF file
-4. Wait for processing message
-✅ See confirmation with chunk count
-```
-
-### Test 2: Ask a Question
-```
-1. Type: "What is this document about?"
-2. Press Ctrl+Enter or click send
-3. Wait for AI response
-✅ See answer with source documents
-```
-
-### Test 3: Multiple Documents
-```
-1. Change namespace to "finance"
-2. Upload another PDF
-3. Change back to "default" namespace
-4. Ask a question
-✅ Results from only that namespace
-```
-
----
-
 ## 🛠️ Technology Stack
 
 | Component | Technology 
