@@ -27,6 +27,7 @@ export const DocumentUpload = ({
   }>({ status: "idle", message: "" });
   const [uploadProgress, setUploadProgress] = React.useState(0);
   const [isDeleting, setIsDeleting] = React.useState(false);
+  const [hasRecords, setHasRecords] = React.useState(true);
 
   // Update status when processing completes
   React.useEffect(() => {
@@ -44,6 +45,23 @@ export const DocumentUpload = ({
       return () => clearTimeout(timer);
     }
   }, [isProcessing, uploadStatus.status]);
+
+  // Check if Pinecone index has records
+  const checkIndexRecords = async () => {
+    try {
+      const response = await fetch("/api/documents");
+      const data = await response.json();
+      setHasRecords(data.totalDocuments > 0);
+    } catch (error) {
+      console.error("Error checking index records:", error);
+      setHasRecords(true); // Default to showing button on error
+    }
+  };
+
+  // Check records on component mount
+  React.useEffect(() => {
+    checkIndexRecords();
+  }, []);
 
   const handleUploadComplete = (res: Array<{ name: string; size: number; url: string }>) => {
     if (res && res.length > 0) {
@@ -124,6 +142,9 @@ export const DocumentUpload = ({
           status: "success",
           message: "✅ All records deleted successfully!",
         });
+
+        // Update hasRecords state to hide the button
+        setHasRecords(false);
 
         // Clear success message after 4 seconds
         setTimeout(() => {
@@ -233,12 +254,6 @@ export const DocumentUpload = ({
           {uploadStatus.status === "error" && (
             <AlertCircle className="w-5 h-5 flex-shrink-0" />
           )}
-          {uploadStatus.status === "success" && (
-            <CheckCircle className="w-5 h-5 flex-shrink-0" />
-          )}
-          {uploadStatus.status === "processing" && (
-            <Loader className="w-5 h-5 flex-shrink-0 animate-spin" />
-          )}
           <p className="text-sm font-medium">{uploadStatus.message}</p>
         </div>
       )}
@@ -288,28 +303,30 @@ export const DocumentUpload = ({
       )}
 
       {/* Delete All Records Button */}
-      <div className="mt-4 border-t border-slate-700/50 pt-4">
-        <button
-          onClick={handleDeleteAllRecords}
-          disabled={isDeleting}
-          className="w-full px-4 py-3 bg-gradient-to-r from-red-600/80 to-red-700/80 hover:from-red-600 hover:to-red-700 disabled:from-red-700/50 disabled:to-red-800/50 disabled:cursor-not-allowed rounded-lg border border-red-500/50 hover:border-red-400/50 transition-all flex items-center justify-center gap-2 text-sm font-medium text-red-50 shadow-lg hover:shadow-xl"
-        >
-          {isDeleting ? (
-            <>
-              <Loader className="w-4 h-4 animate-spin" />
-              <span>Deleting...</span>
-            </>
-          ) : (
-            <>
-              <Trash2 className="w-4 h-4" />
-              <span>Delete All Records</span>
-            </>
-          )}
-        </button>
-        <p className="text-xs text-red-200/60 mt-2 text-center">
-          ⚠️ This will remove all indexed documents from Pinecone
-        </p>
-      </div>
+      {/* {hasRecords && (
+        <div className="mt-4 border-t border-slate-700/50 pt-4">
+          <button
+            onClick={handleDeleteAllRecords}
+            disabled={isDeleting}
+            className="w-full px-4 py-3 bg-gradient-to-r from-red-600/80 to-red-700/80 hover:from-red-600 hover:to-red-700 disabled:from-red-700/50 disabled:to-red-800/50 disabled:cursor-not-allowed rounded-lg border border-red-500/50 hover:border-red-400/50 transition-all flex items-center justify-center gap-2 text-sm font-medium text-red-50 shadow-lg hover:shadow-xl"
+          >
+            {isDeleting ? (
+              <>
+                <Loader className="w-4 h-4 animate-spin" />
+                <span>Deleting...</span>
+              </>
+            ) : (
+              <>
+                <Trash2 className="w-4 h-4" />
+                <span>Delete All Records</span>
+              </>
+            )}
+          </button>
+          <p className="text-xs text-red-200/60 mt-2 text-center">
+            ⚠️ This will remove all indexed documents from Pinecone
+          </p>
+        </div>
+      )} */}
 
       {/* Info Box */}
       <div className="mt-4 p-4 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 rounded-lg border border-yellow-500/20 text-sm text-yellow-100">

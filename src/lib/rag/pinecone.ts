@@ -132,6 +132,7 @@ export const deleteVectors = async (
  * Delete all records from Pinecone index
  * @param namespace - Optional namespace (defaults to "default")
  * @param indexName - Optional index name (defaults to env variable)
+ * @returns Object with success status and message
  */
 export const deleteAllRecords = async (
   namespace?: string,
@@ -152,7 +153,7 @@ export const deleteAllRecords = async (
     await ns.deleteAll();
 
     console.log(
-      `Successfully deleted all records from Pinecone index "${index}"${
+      `✓ Successfully deleted all records from Pinecone index "${index}"${
         namespace ? ` in namespace: ${namespace}` : ""
       }`
     );
@@ -162,6 +163,8 @@ export const deleteAllRecords = async (
       message: `All records deleted from index "${index}"${
         namespace ? ` in namespace: ${namespace}` : ""
       }`,
+      namespace: namespace || "default",
+      timestamp: new Date().toISOString(),
     };
   } catch (error) {
     console.error("Error deleting all records from Pinecone:", error);

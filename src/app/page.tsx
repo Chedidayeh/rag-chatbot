@@ -181,7 +181,7 @@ return (
         </aside>
 
         {/* Right Content - Chat */}
-        <div className="lg:col-span-2 flex flex-col h-[600px]">
+        <div className="lg:col-span-2 flex flex-col h-[530px]">
           <div className="bg-slate-800/40 dark:bg-slate-800/40 backdrop-blur-xl rounded-2xl border border-slate-700/50 shadow-2xl overflow-hidden flex flex-col flex-1 hover:border-slate-600/50 transition-colors">
             {/* Messages */}
             <div className="flex-1 overflow-y-auto">

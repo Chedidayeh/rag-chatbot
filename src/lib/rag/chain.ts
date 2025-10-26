@@ -5,6 +5,8 @@ import {
   getAllDocuments,
   formatDocumentsForDisplay,
   getDocumentStats,
+  clearRegistry,
+  syncRegistryWithPinecone,
 } from "./document-registry";
 
 /**
@@ -124,7 +126,19 @@ export const retrieveRelevantDocuments = async (
     const results = await queryVectors(queryEmbedding, topK, namespace);
 
     if (results.length === 0) {
-      console.log("No relevant documents found");
+      console.log("No relevant documents found in Pinecone");
+      
+      // Force sync registry with Pinecone to detect if index is empty
+      console.log("Syncing registry with Pinecone to verify index state...");
+      await syncRegistryWithPinecone(namespace);
+      
+      // Check if registry is now empty after sync
+      const registryDocs = await getAllDocuments(namespace);
+      if (registryDocs.length === 0) {
+        console.log("✓ Confirmed: Pinecone index is empty. Clearing registry cache.");
+        clearRegistry();
+      }
+      
       return [];
     }
 
@@ -224,6 +238,10 @@ export const generateResponse = async (
     // Get global document catalog
     let documentCatalog = "";
     try {
+      // Always force a fresh sync to ensure registry matches Pinecone state
+      console.log("Syncing registry with Pinecone to ensure fresh document list...");
+      await syncRegistryWithPinecone(namespace);
+      
       const allDocuments = await getAllDocuments(namespace);
       const stats = await getDocumentStats(namespace);
       
@@ -235,6 +253,10 @@ export const generateResponse = async (
         documentCatalog += `- Total Chunks: ${stats.totalChunks}\n`;
         documentCatalog += `- Total Pages: ${stats.totalPages}\n`;
         documentCatalog += `- Average Chunks per Document: ${stats.averageChunksPerDocument}\n\n`;
+      } else {
+        // If no documents found after sync, ensure registry is cleared
+        console.log("No documents found in Pinecone. Clearing registry cache.");
+        clearRegistry();
       }
     } catch (error) {
       console.warn("Could not fetch document catalog:", error);
