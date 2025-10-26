@@ -4,16 +4,6 @@
 
 ---
 
-## 📊 Table of Contents
-
-1. [Upload Flow](#upload-flow)
-2. [Chat Flow](#chat-flow)
-3. [Function Reference](#function-reference)
-4. [Data Structures](#data-structures)
-5. [Error Handling](#error-handling)
-
----
-
 ## 🔼 UPLOAD FLOW
 
 ### Complete Upload Sequence Diagram
