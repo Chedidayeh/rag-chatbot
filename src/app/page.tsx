@@ -1,101 +1,214 @@
-import Image from "next/image";
+"use client";
+
+import React from "react";
+import { MessageCircle } from "lucide-react";
+import { DocumentUpload } from "@/components/upload/DocumentUpload";
+import { MessageList } from "@/components/chat/MessageList";
+import { ChatInput } from "@/components/chat/ChatInput";
+
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: Date;
+  retrievedDocuments?: Array<{
+    id: string;
+    score: number;
+    text: string;
+    source: string;
+    page: number;
+  }>;
+}
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [messages, setMessages] = React.useState<Message[]>([]);
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [isProcessing, setIsProcessing] = React.useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const handleUploadSuccess = async (fileUrl: string, fileName: string) => {
+    setIsProcessing(true);
+
+    try {
+      const response = await fetch("/api/upload-document", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fileUrl,
+          documentName: fileName.replace(".pdf", ""),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Add success message to chat
+        const welcomeMessage: Message = {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: `✅ Successfully uploaded and processed "${fileName}"!\n\n📊 Stats:\n• Total chunks: ${data.stats.totalChunks}\n\n Now you can ask me any questions about the document!`,
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, welcomeMessage]);
+      } else {
+        const errorMessage: Message = {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: `❌ Error uploading document: ${data.error || "Unknown error"}`,
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, errorMessage]);
+      }
+    } catch (error) {
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: `❌ Error: ${error instanceof Error ? error.message : "Failed to upload document"}`,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSendMessage = async (message: string) => {
+    if (!message.trim()) return;
+
+    // Add user message
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: "user",
+      content: message,
+      timestamp: new Date(),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setIsLoading(true);
+
+    try {
+      // Convert messages to format expected by API (excluding retrievedDocuments)
+      const conversationHistory = messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message,
+          conversationHistory, // Send conversation history for context
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: data.response,
+          timestamp: new Date(),
+          retrievedDocuments: data.retrievedDocuments,
+        };
+
+        setMessages((prev) => [...prev, assistantMessage]);
+      } else {
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: `❌ Error: ${data.error || "Failed to generate response"}`,
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, errorMessage]);
+      }
+    } catch (error) {
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: `❌ Error: ${error instanceof Error ? error.message : "Failed to send message"}`,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+return (
+  <div className="flex flex-col min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+    {/* Header */}
+    <header className="sticky top-0 z-50 bg-slate-900/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-800">
+      <div className="max-w-7xl mx-auto px-4 py-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <div className="absolute inset-0 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-lg blur opacity-75 group-hover:opacity-100 transition duration-1000"></div>
+              <div className="relative bg-slate-900 p-2 rounded-lg">
+                <MessageCircle className="w-5 h-5 text-yellow-400" />
+              </div>
+            </div>
+            <div>
+              <h1 className="text-lg font-bold bg-gradient-to-r from-yellow-400 via-orange-400 to-red-500 bg-clip-text text-transparent">
+                RAG Chatbot
+              </h1>
+            </div>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+      </div>
+    </header>
+
+    {/* Main Content */}
+    <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8 sm:px-6 lg:px-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+        {/* Left Sidebar - Upload */}
+        <aside className="lg:col-span-1">
+          <div className="sticky top-24 space-y-4">
+            <DocumentUpload
+              onUploadSuccess={handleUploadSuccess}
+              isProcessing={isProcessing}
+            />
+          </div>
+        </aside>
+
+        {/* Right Content - Chat */}
+        <div className="lg:col-span-2 flex flex-col h-[600px]">
+          <div className="bg-slate-800/40 dark:bg-slate-800/40 backdrop-blur-xl rounded-2xl border border-slate-700/50 shadow-2xl overflow-hidden flex flex-col flex-1 hover:border-slate-600/50 transition-colors">
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto">
+              <MessageList messages={messages} isLoading={isLoading} />
+            </div>
+
+            {/* Chat Input */}
+            <ChatInput
+              onSendMessage={handleSendMessage}
+              disabled={isProcessing}
+            />
+          </div>
+        </div>
+      </div>
+    </main>
+
+    {/* Footer */}
+    <footer className="bg-slate-900/50 dark:bg-slate-900/50 backdrop-blur-md border-t border-slate-800">
+      <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+        <p className="text-center text-sm text-slate-400">
+          Built with <span className="text-yellow-400">LangChain</span> •{" "}
+          <span className="text-blue-400">Pinecone</span> •{" "}
+          <span className="text-cyan-400">Google Gemini</span> •{" "}
+          <span className="text-purple-400">Next.js</span>
+        </p>
+      </div>
+    </footer>
+  </div>
+);
 }
