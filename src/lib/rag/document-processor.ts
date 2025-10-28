@@ -6,6 +6,7 @@ import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters"; // Sp
 import { Document } from "@langchain/core/documents"; // Document type from LangChain
 import * as fs from "fs"; // File system operations
 import * as path from "path"; // Path manipulation utilities
+import * as os from "os"; // OS utilities (for temp dir)
 
 // ============================================
 // CONFIGURATION - Chunking settings
@@ -355,11 +356,16 @@ export const downloadFileFromUrl = async (
 ): Promise<string> => {
   try {
     // ============================================
-    // STEP 1: Create temp directory
+    // STEP 1: Create temp directory (use OS temp dir on serverless)
     // ============================================
-    const tempDir = path.join(process.cwd(), "tmp");
+    // On platforms like Vercel/AWS Lambda, writing to process.cwd() is not allowed.
+    // Use the platform-provided temp directory (os.tmpdir()) which typically
+    // resolves to '/tmp' and is writable. Fall back to a local 'tmp' folder
+    // in the project root only if necessary.
+    const baseTempDir = os.tmpdir() || process.env.TMPDIR || path.join(process.cwd(), "tmp");
+    const tempDir = path.join(baseTempDir, "rag-chatbot");
 
-    // Create tmp directory if it doesn't exist
+    // Ensure the temp directory exists
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }

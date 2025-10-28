@@ -212,7 +212,7 @@ export const DocumentUpload = ({
                 );
               return (
                 <p className="text-xs text-slate-400">
-                  PDF files up to 10MB are supported
+                  PDF files up to 8MB are supported
                 </p>
               );
             },
