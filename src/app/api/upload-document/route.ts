@@ -6,6 +6,7 @@ import {
 } from "@/lib/rag/document-processor";
 import { addDocuments } from "@/lib/rag/vectorstore";
 import { registerDocument } from "@/lib/rag/document-registry";
+import { formatErrorDetails } from "@/lib/api/error";
 
 /**
  * POST /api/upload-document
@@ -120,13 +121,12 @@ export async function POST(request: NextRequest) {
       cleanupTempFile(tempFilePath);
     }
 
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error occurred";
+    const details = formatErrorDetails(error);
 
     return NextResponse.json(
       {
         success: false,
-        error: errorMessage,
+        error: details,
       },
       { status: 500 }
     );

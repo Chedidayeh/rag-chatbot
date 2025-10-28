@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ragPipeline } from "@/lib/rag/chain";
+import { formatErrorDetails } from "@/lib/api/error";
 
 /**
  * POST /api/chat
@@ -60,13 +61,12 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error in chat endpoint:", error);
 
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error occurred";
+    const details = formatErrorDetails(error);
 
     return NextResponse.json(
       {
         success: false,
-        error: errorMessage,
+        error: details,
       },
       { status: 500 }
     );

@@ -5,6 +5,7 @@ import {
   formatDocumentsForDisplay,
   syncRegistryWithPinecone,
 } from "@/lib/rag/document-registry";
+import { formatErrorDetails } from "@/lib/api/error";
 
 /**
  * GET /api/documents
@@ -60,13 +61,12 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error in documents endpoint:", error);
 
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error occurred";
+    const details = formatErrorDetails(error);
 
     return NextResponse.json(
       {
         success: false,
-        error: errorMessage,
+        error: details,
       },
       { status: 500 }
     );
@@ -115,13 +115,12 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error in documents POST endpoint:", error);
 
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error occurred";
+    const details = formatErrorDetails(error);
 
     return NextResponse.json(
       {
         success: false,
-        error: errorMessage,
+        error: details,
       },
       { status: 500 }
     );

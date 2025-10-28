@@ -46,6 +46,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tabler/icons-react": "^3.35.0",
     "@uploadthing/react": "^7.3.3",
+    "@vercel/analytics": "^1.5.0",
     "chromadb": "^3.0.17",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -42,7 +42,7 @@ export default function Home() {
 
       const data = await response.json();
 
-      if (data.success) {
+  if (data.success) {
         // Add success message to chat
         const welcomeMessage: Message = {
           id: Date.now().toString(),
@@ -53,10 +53,18 @@ export default function Home() {
 
         setMessages((prev) => [...prev, welcomeMessage]);
       } else {
+        // Normalize error from API (can be string or structured object)
+  const apiError = (data as unknown as { error?: unknown }).error;
+        const maybeError = apiError as { message?: string } | undefined;
+        const errorText =
+          typeof apiError === "string"
+            ? apiError
+            : maybeError?.message || JSON.stringify(apiError) || "Unknown error";
+
         const errorMessage: Message = {
           id: Date.now().toString(),
           role: "assistant",
-          content: `❌ Error uploading document: ${data.error || "Unknown error"}`,
+          content: `❌ Error uploading document: ${errorText}`,
           timestamp: new Date(),
         };
 
@@ -110,7 +118,7 @@ export default function Home() {
 
       const data = await response.json();
 
-      if (data.success) {
+  if (data.success) {
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
@@ -121,10 +129,17 @@ export default function Home() {
 
         setMessages((prev) => [...prev, assistantMessage]);
       } else {
+  const apiError = (data as unknown as { error?: unknown }).error;
+        const maybeError2 = apiError as { message?: string } | undefined;
+        const errorText =
+          typeof apiError === "string"
+            ? apiError
+            : maybeError2?.message || JSON.stringify(apiError) || "Failed to generate response";
+
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: `❌ Error: ${data.error || "Failed to generate response"}`,
+          content: `❌ Error: ${errorText}`,
           timestamp: new Date(),
         };
 

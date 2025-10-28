@@ -338,7 +338,7 @@ export const DocumentUpload = ({
           <li>Upload a PDF document</li>
           <li>AI processes and indexes the content</li>
           <li>Ask natural language questions</li>
-          <li>Get intelligent answers with sources</li>
+          <li>Get intelligent answers</li>
         </ul>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { deleteAllRecords } from "@/lib/rag/pinecone";
 import { clearRegistry } from "@/lib/rag/document-registry";
+import { formatErrorDetails } from "@/lib/api/error";
 
 /**
  * POST /api/delete-all-records
@@ -24,11 +25,12 @@ export async function POST() {
   } catch (error) {
     console.error("Error in delete-all-records API:", error);
 
+    const details = formatErrorDetails(error);
+
     return NextResponse.json(
       {
         success: false,
-        error:
-          error instanceof Error ? error.message : "Failed to delete records",
+        error: details,
         timestamp: new Date().toISOString(),
       },
       { status: 500 }
