@@ -8,9 +8,8 @@
 
 - 📄 **Upload PDFs** → Ask questions → Get AI-powered answers with sources
 - 🔍 **Semantic Search** → Find relevant information instantly
-- 📊 **Multiple Documents** → Organize with namespaces, search across collections
+- 📊 **Multiple Documents** → Search across collections
 - 💡 **Smart Retrieval** → AI finds the most relevant sections automatically
-- 📎 **Source Citations** → See where answers come from with relevance scores
 
 ---
 
@@ -42,13 +41,10 @@ npm run dev
 - ✅ Automatic text extraction
 - ✅ Smart chunking with context overlap
 - ✅ Real-time processing feedback
-- ✅ Organize documents by namespace
 
 ### 💬 Chat Interface
 - ✅ Ask natural language questions
 - ✅ Get instant AI-powered responses
-- ✅ See retrieved source documents
-- ✅ View relevance scores
 - ✅ Beautiful message formatting
 
 ### 🧠 AI Engine
@@ -60,8 +56,6 @@ npm run dev
 
 ### 🔖 Document Management
 - ✅ Track uploaded documents
-- ✅ View document statistics
-- ✅ Organize by namespaces
 - ✅ Auto-sync with Pinecone
 - ✅ Document registry caching
 
@@ -224,8 +218,6 @@ fileType: ["application/pdf"]  # Only PDFs
 | **Vector Embeddings** | ✅ | Google text-embedding-004 (1536D) |
 | **Semantic Search** | ✅ | Cosine similarity in Pinecone |
 | **AI Responses** | ✅ | Gemini 1.5 Pro with context |
-| **Source Citation** | ✅ | Document name + page + score |
-| **Document Organization** | ✅ | Namespace-based isolation |
 | **Document Registry** | ✅ | In-memory cache + Pinecone sync |
 | **Error Handling** | ✅ | Comprehensive with user feedback |
 | **Streaming** | ✅ | Real-time response generation |
