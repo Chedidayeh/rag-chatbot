@@ -1,0 +1,138 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model - manages user accounts and sessions
+model User {
+  id        String   @id @default(cuid())
+  sessionId String   @unique
+  name      String?
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  documents Document[]
+  chats     Chat[]
+  sessions  Session[]
+  
+  @@index([sessionId])
+}
+
+// Session model - manages user authentication sessions
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  
+  @@index([userId])
+}
+
+// Document model - stores metadata about uploaded documents
+model Document {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Document identification
+  documentId       String   @unique  // Unique identifier (hash of filename + timestamp)
+  fileName         String
+  fileSize         Int      // in bytes
+  fileType         String   // pdf, txt, docx, etc
+  totalChunks      Int
+  pages            Int?
+  
+  // Storage info
+  storageUrl       String
+  vectorized       Boolean  @default(false)
+  
+  // Metadata
+  description      String?
+  tags             String[] @default([])
+  
+  // Registry fields (from document-registry)
+  namespace        String   @default("default")  // Pinecone namespace
+  uploadedAt       DateTime @default(now())      // ISO timestamp
+  status           String   @default("completed")  // "processing" | "completed" | "failed"
+  processingTime   Int?     // Time in milliseconds
+  embeddingModel   String?  // Model used for embeddings (e.g., "gemini-2.5")
+  keywords         String[] @default([])         // Auto-extracted keywords
+  preview          String?  // First 200 chars of content
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  chunks           DocumentChunk[]
+  chats            Chat[]
+  
+  @@index([userId])
+  @@index([namespace])
+  @@index([status])
+  @@index([createdAt])
+  @@index([uploadedAt])
+}
+
+// DocumentChunk model - stores individual chunks for vector search
+model DocumentChunk {
+  id            String   @id @default(cuid())
+  documentId    String
+  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  
+  chunkIndex    Int
+  text          String   @db.Text
+  page          Int?
+  
+  // Vector embedding (store as string or use pgvector extension)
+  embedding     String?  // JSON string of vector array
+  
+  createdAt     DateTime @default(now())
+  
+  @@index([documentId])
+  @@index([chunkIndex])
+}
+
+// Chat model - manages chat sessions with documents
+model Chat {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  title         String?
+  documents     Document[]
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations
+  messages      Message[]
+  
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// Message model - stores individual chat messages
+model Message {
+  id            String   @id @default(cuid())
+  chatId        String
+  chat          Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  
+  role          String   // "user" or "assistant"
+  content       String   @db.Text
+  
+  // Retrieved documents metadata
+  retrievedDocs Json?    // Store references to retrieved documents
+  
+  createdAt     DateTime @default(now())
+  
+  @@index([chatId])
+  @@index([createdAt])
+}

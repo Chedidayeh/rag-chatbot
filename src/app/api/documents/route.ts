@@ -1,65 +1,75 @@
-import { NextRequest, NextResponse } from "next/server";
-import {
-  getAllDocuments,
-  getDocumentStats,
-  formatDocumentsForDisplay,
-  syncRegistryWithPinecone,
-} from "@/lib/rag/document-registry";
+import { NextResponse } from "next/server";
 import { formatErrorDetails } from "@/lib/api/error";
+import { getCurrentUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 /**
  * GET /api/documents
- * Get all available documents and statistics
- *
- * Query parameters:
- * - namespace: Optional namespace to filter by (default: "default")
- * - stats: Set to "true" to include statistics
+ * Get all documents for the current user
  *
  * Response:
  * {
  *   "success": true,
- *   "totalDocuments": 5,
- *   "documents": [...],
- *   "stats": {...}  (optional)
+ *   "documents": [
+ *     {
+ *       "id": "doc_id",
+ *       "fileName": "document.pdf",
+ *       "fileSize": 102400,
+ *       "totalChunks": 45,
+ *       "pages": 10,
+ *       "uploadedAt": "2024-01-01T12:00:00Z",
+ *       "tags": []
+ *     }
+ *   ]
  * }
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const namespace = searchParams.get("namespace") || "default";
-    const includeStats = searchParams.get("stats") === "true";
+    // Get authenticated user from session
+    const user = await getCurrentUser();
 
-    console.log(`Fetching documents from namespace: "${namespace}"`);
-
-    // Sync registry with Pinecone to get latest documents
-    await syncRegistryWithPinecone(namespace);
-
-    // Get all documents
-    const documents = await getAllDocuments(namespace);
-
-    const baseResponse = {
-      success: true,
-      namespace,
-      totalDocuments: documents.length,
-      documents: documents.map((doc) => ({
-        documentId: doc.documentId,
-        fileName: doc.fileName,
-        uploadedAt: doc.uploadedAt,
-        totalChunks: doc.totalChunks,
-        pages: doc.pages,
-        status: doc.status,
-      })),
-      formatted: formatDocumentsForDisplay(documents),
-    };
-
-    if (includeStats) {
-      const stats = await getDocumentStats(namespace);
-      return NextResponse.json({ ...baseResponse, stats }, { status: 200 });
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized - no active session" },
+        { status: 401 }
+      );
     }
 
-    return NextResponse.json(baseResponse, { status: 200 });
+    console.log(`[${user.id}] Fetching documents`);
+
+    // Get all documents for this user
+    const documents = await prisma.document.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      include: {
+        _count: {
+          select: { chunks: true },
+        },
+      },
+    });
+
+    const formattedDocs = documents.map((doc: typeof documents[0]) => ({
+      id: doc.id,
+      fileName: doc.fileName,
+      fileSize: doc.fileSize,
+      totalChunks: doc.totalChunks,
+      pages: doc.pages,
+      uploadedAt: doc.createdAt,
+      tags: doc.tags,
+      description: doc.description,
+      vectorized: doc.vectorized,
+    }));
+
+    return NextResponse.json(
+      {
+        success: true,
+        documents: formattedDocs,
+        totalDocuments: formattedDocs.length,
+      },
+      { status: 200 }
+    );
   } catch (error) {
-    console.error("Error in documents endpoint:", error);
+    console.error("Error in documents GET endpoint:", error);
 
     const details = formatErrorDetails(error);
 
@@ -75,54 +85,14 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/documents
- * Manually sync registry with Pinecone
- *
- * Request body:
- * {
- *   "action": "sync",
- *   "namespace": "default" (optional)
- * }
+ * Delete a document (will be implemented in separate route)
  */
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { action, namespace = "default" } = body;
-
-    if (action === "sync") {
-      console.log(`Syncing document registry for namespace: "${namespace}"`);
-      await syncRegistryWithPinecone(namespace);
-
-      const documents = await getAllDocuments(namespace);
-      const stats = await getDocumentStats(namespace);
-
-      return NextResponse.json(
-        {
-          success: true,
-          message: `Registry synced. Found ${documents.length} documents.`,
-          stats,
-        },
-        { status: 200 }
-      );
-    }
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Invalid action",
-      },
-      { status: 400 }
-    );
-  } catch (error) {
-    console.error("Error in documents POST endpoint:", error);
-
-    const details = formatErrorDetails(error);
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: details,
-      },
-      { status: 500 }
-    );
-  }
+export async function POST() {
+  return NextResponse.json(
+    {
+      success: false,
+      error: "Use DELETE /api/documents/[id] instead",
+    },
+    { status: 400 }
+  );
 }

@@ -5,8 +5,6 @@ import {
   getAllDocuments,
   formatDocumentsForDisplay,
   getDocumentStats,
-  clearRegistry,
-  syncRegistryWithPinecone,
 } from "./document-registry";
 
 /**
@@ -108,15 +106,18 @@ const isDocumentInventoryQuery = (query: string): boolean => {
  * @param query - User's question
  * @param topK - Number of results to retrieve
  * @param namespace - Namespace to search in
+ * @param userId - User ID for logging
  * @returns Array of relevant document chunks
  */
 export const retrieveRelevantDocuments = async (
   query: string,
   topK: number = RAG_CONFIG.topK,
-  namespace: string = "default"
+  namespace: string = "default",
+  userId?: string
 ) => {
   try {
-    console.log(`Retrieving ${topK} relevant documents for query: "${query}"`);
+    const userPrefix = userId ? `[${userId}]` : "";
+    console.log(`${userPrefix} Retrieving ${topK} relevant documents for query: "${query}"`);
 
     // Get embeddings for the query
     const embeddings = await getEmbeddingsInstance();
@@ -126,23 +127,18 @@ export const retrieveRelevantDocuments = async (
     const results = await queryVectors(queryEmbedding, topK, namespace);
 
     if (results.length === 0) {
-      console.log("No relevant documents found in Pinecone");
+      console.log(`${userPrefix} No relevant documents found in Pinecone`);
       
-      // Force sync registry with Pinecone to detect if index is empty
-      console.log("Syncing registry with Pinecone to verify index state...");
-      await syncRegistryWithPinecone(namespace);
-      
-      // Check if registry is now empty after sync
+      // Check if index is empty by querying the database
       const registryDocs = await getAllDocuments(namespace);
       if (registryDocs.length === 0) {
-        console.log("✓ Confirmed: Pinecone index is empty. Clearing registry cache.");
-        clearRegistry();
+        console.log(`${userPrefix} ✓ Confirmed: Pinecone index is empty.`);
       }
       
       return [];
     }
 
-    console.log(`Found ${results.length} relevant documents`);
+    console.log(`${userPrefix} Found ${results.length} relevant documents`);
 
     // Map Pinecone results to expected format
     return results.map((result) => ({
@@ -211,6 +207,7 @@ const formatConversationContext = (
  * @param conversationHistory - Previous messages for context
  * @param retrievedDocs - Retrieved documents for analysis
  * @param namespace - Namespace being searched
+ * @param userId - User ID for logging
  * @returns Generated response text
  */
 export const generateResponse = async (
@@ -223,9 +220,12 @@ export const generateResponse = async (
     page: number;
     score: number;
   }> = [],
-  namespace: string = "default"
+  namespace: string = "default",
+  userId?: string
 ) => {
   try {
+    const userPrefix = userId ? `[${userId}]` : "";
+    
     const client = getGeminiClient();
     const model = client.getGenerativeModel({ model: "gemini-2.5-flash" });
     
@@ -238,10 +238,7 @@ export const generateResponse = async (
     // Get global document catalog
     let documentCatalog = "";
     try {
-      // Always force a fresh sync to ensure registry matches Pinecone state
-      console.log("Syncing registry with Pinecone to ensure fresh document list...");
-      await syncRegistryWithPinecone(namespace);
-      
+      // Fetch fresh document list from database
       const allDocuments = await getAllDocuments(namespace);
       const stats = await getDocumentStats(namespace);
       
@@ -253,13 +250,9 @@ export const generateResponse = async (
         documentCatalog += `- Total Chunks: ${stats.totalChunks}\n`;
         documentCatalog += `- Total Pages: ${stats.totalPages}\n`;
         documentCatalog += `- Average Chunks per Document: ${stats.averageChunksPerDocument}\n\n`;
-      } else {
-        // If no documents found after sync, ensure registry is cleared
-        console.log("No documents found in Pinecone. Clearing registry cache.");
-        clearRegistry();
       }
     } catch (error) {
-      console.warn("Could not fetch document catalog:", error);
+      console.warn(`${userPrefix} Could not fetch document catalog:`, error);
     }
     
     // Get summary of retrieved documents for current query
@@ -305,10 +298,10 @@ Now, please respond appropriately based on the question clarity and available re
       chatHistory = chatHistory.slice(1);
     }
 
-    console.log("Generating response with Gemini 2.5 Flash...");
-    console.log(`Conversation history length: ${conversationHistory.length} messages`);
-    console.log(`Retrieved documents: ${retrievedDocs.length} chunks from ${sources.length} source(s)`);
-    console.log(`Available documents in catalog: ${documentCatalog ? "Yes" : "No"}`);
+    console.log(`${userPrefix} Generating response with Gemini 2.5 Flash...`);
+    console.log(`${userPrefix} Conversation history length: ${conversationHistory.length} messages`);
+    console.log(`${userPrefix} Retrieved documents: ${retrievedDocs.length} chunks from ${sources.length} source(s)`);
+    console.log(`${userPrefix} Available documents in catalog: ${documentCatalog ? "Yes" : "No"}`);
 
     // Start chat session with validated history
     const chat = model.startChat({
@@ -320,7 +313,7 @@ Now, please respond appropriately based on the question clarity and available re
 
     const response = result.response.text();
 
-    console.log("Successfully generated response");
+    console.log(`${userPrefix} Successfully generated response`);
 
     return response;
   } catch (error) {
@@ -334,21 +327,25 @@ Now, please respond appropriately based on the question clarity and available re
  * @param query - User's question
  * @param namespace - Namespace to search in
  * @param conversationHistory - Previous messages
+ * @param userId - User ID for logging
  * @returns Generated response and retrieved documents
  */
 export const ragPipeline = async (
   query: string,
   namespace: string = "default",
-  conversationHistory: Array<{ role: string; content: string }> = []
+  conversationHistory: Array<{ role: string; content: string }> = [],
+  userId?: string
 ) => {
   try {
-    console.log("Starting RAG pipeline...");
+    const userPrefix = userId ? `[${userId}]` : "";
+    console.log(`${userPrefix} Starting RAG pipeline...`);
 
     // Step 1: Retrieve relevant documents
     const retrievedDocs = await retrieveRelevantDocuments(
       query,
       RAG_CONFIG.topK,
-      namespace
+      namespace,
+      userId
     );
 
     // Step 2: Format context
@@ -360,7 +357,8 @@ export const ragPipeline = async (
       context,
       conversationHistory,
       retrievedDocs,
-      namespace
+      namespace,
+      userId
     );
 
     return {

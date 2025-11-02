@@ -1,52 +1,84 @@
-import { getPineconeIndex } from "./pinecone";
+import { prisma } from "@/lib/prisma";
 
 /**
  * Document Metadata Interface
  * Represents metadata about a processed document
+ * Now backed by Prisma Document model instead of in-memory registry
  */
 export interface DocumentMetadata {
-  documentId: string; // Unique identifier (hash of filename + timestamp)
-  fileName: string; // Original filename
-  uploadedAt: string; // ISO timestamp
-  namespace: string; // Pinecone namespace
-  totalChunks: number; // Number of chunks created
-  totalSize?: number; // File size in bytes (optional)
-  pages?: number; // Total pages in PDF (optional)
-  preview?: string; // First 200 chars of content
+  documentId: string;
+  fileName: string;
+  uploadedAt: string;
+  namespace: string;
+  totalChunks: number;
+  totalSize?: number;
+  pages?: number;
+  preview?: string;
   status: "processing" | "completed" | "failed";
-  processingTime?: number; // Time in milliseconds
-  embeddingModel?: string; // Model used for embeddings
-  keywords?: string[]; // Auto-extracted keywords
+  processingTime?: number;
+  embeddingModel?: string;
+  keywords?: string[];
 }
 
 /**
- * In-memory document registry
- * Stores metadata about all processed documents
- * Syncs with Pinecone on startup and periodically
- */
-const documentRegistry: Map<string, DocumentMetadata> = new Map();
-let lastSyncTime: number = 0;
-const SYNC_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
-
-/**
- * Register a new document in the registry
+ * Register a new document in the database
  * @param metadata - Document metadata to register
+ * @param userId - User ID to associate with document
  */
 export const registerDocument = async (
-  metadata: DocumentMetadata
+  metadata: DocumentMetadata,
+  userId: string
 ): Promise<void> => {
   try {
     const documentId = metadata.documentId || `${metadata.fileName}-${Date.now()}`;
-    
-    const fullMetadata: DocumentMetadata = {
-      ...metadata,
-      documentId,
-      status: "completed",
-    };
 
-    documentRegistry.set(documentId, fullMetadata);
-    
-    console.log(`✓ Registered document: "${metadata.fileName}" (${documentId})`);
+    // Check if document already exists
+    const existing = await prisma.document.findUnique({
+      where: { documentId },
+    });
+
+    if (existing) {
+      // Update existing document
+      await prisma.document.update({
+        where: { documentId },
+        data: {
+          status: "completed",
+          embeddingModel: metadata.embeddingModel,
+          keywords: metadata.keywords || [],
+          preview: metadata.preview,
+          processingTime: metadata.processingTime,
+          uploadedAt: new Date(metadata.uploadedAt),
+        },
+      });
+      console.log(
+        `✓ Updated document: "${metadata.fileName}" (${documentId})`
+      );
+    } else {
+      // Create new document
+      await prisma.document.create({
+        data: {
+          userId,
+          documentId,
+          fileName: metadata.fileName,
+          fileSize: metadata.totalSize || 0,
+          fileType: "pdf",
+          totalChunks: metadata.totalChunks,
+          pages: metadata.pages,
+          storageUrl: "",
+          namespace: metadata.namespace,
+          status: "completed",
+          embeddingModel: metadata.embeddingModel,
+          keywords: metadata.keywords || [],
+          preview: metadata.preview,
+          processingTime: metadata.processingTime,
+          uploadedAt: new Date(metadata.uploadedAt),
+          vectorized: true,
+        },
+      });
+      console.log(
+        `✓ Registered document: "${metadata.fileName}" (${documentId})`
+      );
+    }
   } catch (error) {
     console.error("Error registering document:", error);
     throw error;
@@ -54,132 +86,43 @@ export const registerDocument = async (
 };
 
 /**
- * Discover all documents currently stored in Pinecone
- * Queries metadata from all vectors to build a comprehensive document list
- * @param namespace - Optional namespace to search in
- * @returns Array of unique documents found in Pinecone
- */
-export const discoverDocumentsFromPinecone = async (
-  namespace?: string
-): Promise<DocumentMetadata[]> => {
-  try {
-    console.log(
-      `🔍 Discovering documents from Pinecone${namespace ? ` in namespace: ${namespace}` : ""}...`
-    );
-
-    const index = getPineconeIndex();
-    const ns = index.namespace(namespace || "default");
-
-    // List all vectors to get metadata
-    // Note: This is a workaround. In production, use Pinecone's stats API if available
-    const allDocuments = new Map<string, DocumentMetadata>();
-
-    // Query with a broad search to get document metadata
-    // Using a dummy query to retrieve maximum results
-    const results = await ns.query({
-      vector: new Array(768).fill(0.1), // Dummy vector (768 dims for Gemini embeddings)
-      topK: 10000, // Get as many as possible
-      includeMetadata: true,
-    });
-
-    // Extract unique documents from results
-    if (results.matches && results.matches.length > 0) {
-      const sourceMap = new Map<string, { count: number; pages: string[] }>();
-
-      results.matches.forEach((match) => {
-        const source = (match.metadata?.source as string) || "unknown";
-        const page = (match.metadata?.page as string) || "0";
-
-        if (!sourceMap.has(source)) {
-          sourceMap.set(source, { count: 0, pages: [] });
-        }
-
-        const doc = sourceMap.get(source)!;
-        doc.count++;
-        if (!doc.pages.includes(page)) {
-          doc.pages.push(page);
-        }
-      });
-
-      // Convert to DocumentMetadata array
-      sourceMap.forEach((data, source) => {
-        const documentId = `${source}-${namespace || "default"}`;
-        const pages = Math.max(...data.pages.map(p => parseInt(p))) + 1;
-
-        allDocuments.set(documentId, {
-          documentId,
-          fileName: source,
-          uploadedAt: new Date().toISOString(),
-          namespace: namespace || "default",
-          totalChunks: data.count,
-          pages,
-          status: "completed",
-        });
-      });
-    }
-
-    const discoveredDocs = Array.from(allDocuments.values());
-    console.log(`✓ Discovered ${discoveredDocs.length} unique documents from Pinecone`);
-
-    return discoveredDocs;
-  } catch (error) {
-    console.error("Error discovering documents from Pinecone:", error);
-    throw error;
-  }
-};
-
-/**
- * Sync registry with Pinecone
- * Discovers all documents currently stored and updates the registry
- * @param namespace - Optional namespace to sync
- */
-export const syncRegistryWithPinecone = async (
-  namespace?: string
-): Promise<void> => {
-  try {
-    const now = Date.now();
-
-    // Skip if synced recently
-    if (now - lastSyncTime < SYNC_INTERVAL && documentRegistry.size > 0) {
-      console.log("ℹ Registry recently synced, skipping...");
-      return;
-    }
-
-    console.log("🔄 Syncing document registry with Pinecone...");
-
-    const discoveredDocs = await discoverDocumentsFromPinecone(namespace);
-
-    // Update registry
-    discoveredDocs.forEach((doc) => {
-      documentRegistry.set(doc.documentId, doc);
-    });
-
-    lastSyncTime = now;
-    console.log(`✓ Registry synced. Total documents: ${documentRegistry.size}`);
-  } catch (error) {
-    console.error("Error syncing registry:", error);
-    throw error;
-  }
-};
-
-/**
  * Get all registered documents
  * @param namespace - Optional namespace filter
+ * @param userId - Optional user ID filter
  * @returns Array of all documents
  */
 export const getAllDocuments = async (
-  namespace?: string
+  namespace?: string,
+  userId?: string
 ): Promise<DocumentMetadata[]> => {
-  // Sync if needed
-  await syncRegistryWithPinecone(namespace);
+  try {
+    const documents = await prisma.document.findMany({
+      where: {
+        ...(namespace ? { namespace } : {}),
+        ...(userId ? { userId } : {}),
+      },
+      orderBy: { uploadedAt: "desc" },
+    });
 
-  if (namespace) {
-    return Array.from(documentRegistry.values()).filter(
-      (doc) => doc.namespace === namespace
-    );
+    return documents.map((doc) => ({
+      documentId: doc.documentId,
+      fileName: doc.fileName,
+      uploadedAt: doc.uploadedAt.toISOString(),
+      namespace: doc.namespace,
+      totalChunks: doc.totalChunks,
+      totalSize: doc.fileSize,
+      pages: doc.pages || undefined,
+      preview: doc.preview || undefined,
+      status: (doc.status as "processing" | "completed" | "failed") ||
+        "completed",
+      processingTime: doc.processingTime || undefined,
+      embeddingModel: doc.embeddingModel || undefined,
+      keywords: doc.keywords || [],
+    }));
+  } catch (error) {
+    console.error("Error fetching documents:", error);
+    throw error;
   }
-
-  return Array.from(documentRegistry.values());
 };
 
 /**
@@ -190,59 +133,117 @@ export const getAllDocuments = async (
 export const getDocument = async (
   documentId: string
 ): Promise<DocumentMetadata | undefined> => {
-  return documentRegistry.get(documentId);
+  try {
+    const doc = await prisma.document.findUnique({
+      where: { documentId },
+    });
+
+    if (!doc) return undefined;
+
+    return {
+      documentId: doc.documentId,
+      fileName: doc.fileName,
+      uploadedAt: doc.uploadedAt.toISOString(),
+      namespace: doc.namespace,
+      totalChunks: doc.totalChunks,
+      totalSize: doc.fileSize,
+      pages: doc.pages || undefined,
+      preview: doc.preview || undefined,
+      status: (doc.status as "processing" | "completed" | "failed") ||
+        "completed",
+      processingTime: doc.processingTime || undefined,
+      embeddingModel: doc.embeddingModel || undefined,
+      keywords: doc.keywords || [],
+    };
+  } catch (error) {
+    console.error("Error fetching document:", error);
+    throw error;
+  }
 };
 
 /**
  * Get document statistics
  * @param namespace - Optional namespace filter
+ * @param userId - Optional user ID filter
  * @returns Statistics about documents
  */
-export const getDocumentStats = async (namespace?: string) => {
-  const documents = await getAllDocuments(namespace);
+export const getDocumentStats = async (
+  namespace?: string,
+  userId?: string
+) => {
+  try {
+    const documents = await getAllDocuments(namespace, userId);
 
-  const stats = {
-    totalDocuments: documents.length,
-    totalChunks: documents.reduce((sum, doc) => sum + doc.totalChunks, 0),
-    totalPages: documents.reduce((sum, doc) => sum + (doc.pages || 0), 0),
-    totalSize: documents.reduce((sum, doc) => sum + (doc.totalSize || 0), 0),
-    averageChunksPerDocument:
-      documents.length > 0
-        ? (documents.reduce((sum, doc) => sum + doc.totalChunks, 0) /
-            documents.length).toFixed(1)
-        : 0,
-    documents: documents.map((doc) => ({
-      fileName: doc.fileName,
-      totalChunks: doc.totalChunks,
-      pages: doc.pages,
-      uploadedAt: doc.uploadedAt,
-    })),
-  };
+    const stats = {
+      totalDocuments: documents.length,
+      totalChunks: documents.reduce((sum, doc) => sum + doc.totalChunks, 0),
+      totalPages: documents.reduce((sum, doc) => sum + (doc.pages || 0), 0),
+      totalSize: documents.reduce((sum, doc) => sum + (doc.totalSize || 0), 0),
+      averageChunksPerDocument:
+        documents.length > 0
+          ? (
+              documents.reduce((sum, doc) => sum + doc.totalChunks, 0) /
+              documents.length
+            ).toFixed(1)
+          : 0,
+      documents: documents.map((doc) => ({
+        fileName: doc.fileName,
+        totalChunks: doc.totalChunks,
+        pages: doc.pages,
+        uploadedAt: doc.uploadedAt,
+      })),
+    };
 
-  return stats;
+    return stats;
+  } catch (error) {
+    console.error("Error calculating document stats:", error);
+    throw error;
+  }
 };
 
 /**
  * Get documents by status
  * @param status - Status to filter by
  * @param namespace - Optional namespace filter
+ * @param userId - Optional user ID filter
  * @returns Array of documents with given status
  */
 export const getDocumentsByStatus = async (
   status: "processing" | "completed" | "failed",
-  namespace?: string
+  namespace?: string,
+  userId?: string
 ): Promise<DocumentMetadata[]> => {
-  const documents = await getAllDocuments(namespace);
-  return documents.filter((doc) => doc.status === status);
+  try {
+    const documents = await getAllDocuments(namespace, userId);
+    return documents.filter((doc) => doc.status === status);
+  } catch (error) {
+    console.error("Error fetching documents by status:", error);
+    throw error;
+  }
 };
 
 /**
- * Clear the registry (useful for reset)
+ * Clear all documents (useful for reset)
+ * @param namespace - Optional namespace to clear (if not provided, clears all)
+ * @param userId - Optional user ID to filter (if not provided, clears all)
  */
-export const clearRegistry = (): void => {
-  documentRegistry.clear();
-  lastSyncTime = 0;
-  console.log("Registry cleared");
+export const clearRegistry = async (
+  namespace?: string,
+  userId?: string
+): Promise<void> => {
+  try {
+    const result = await prisma.document.deleteMany({
+      where: {
+        ...(namespace ? { namespace } : {}),
+        ...(userId ? { userId } : {}),
+      },
+    });
+
+    console.log(`Registry cleared - deleted ${result.count} documents`);
+  } catch (error) {
+    console.error("Error clearing registry:", error);
+    throw error;
+  }
 };
 
 /**
@@ -278,15 +279,55 @@ export const formatDocumentsForDisplay = (
 
 /**
  * Initialize registry on startup
- * Syncs with Pinecone to build initial document list
+ * With Prisma backend, this is now a no-op since data persists
  */
 export const initializeRegistry = async (): Promise<void> => {
   try {
     console.log("🚀 Initializing document registry...");
-    await syncRegistryWithPinecone();
-    console.log("✓ Document registry initialized");
+    const count = await prisma.document.count();
+    console.log(`✓ Document registry initialized - ${count} documents found in database`);
   } catch (error) {
     console.error("Error initializing registry:", error);
-    // Continue anyway - registry can be populated later
+    // Continue anyway - documents can be queried later
   }
+};
+
+/**
+ * Sync registry with Pinecone (legacy - now a no-op)
+ * Data is persisted in Prisma database, no in-memory sync needed
+ */
+export const syncRegistryWithPinecone = async (
+  namespace?: string,
+  userId?: string
+): Promise<void> => {
+  try {
+    console.log("🔄 Registry sync check...");
+    const count = await prisma.document.count({
+      where: {
+        ...(namespace ? { namespace } : {}),
+        ...(userId ? { userId } : {}),
+      },
+    });
+    console.log(
+      `✓ Registry check complete - ${count} documents in database`
+    );
+  } catch (error) {
+    console.error("Error syncing registry:", error);
+    throw error;
+  }
+};
+
+/**
+ * Discover documents from Pinecone (legacy - data now stored in Prisma)
+ * This function is kept for backward compatibility but now reads from Prisma
+ */
+export const discoverDocumentsFromPinecone = async (
+  namespace?: string,
+  userId?: string
+): Promise<DocumentMetadata[]> => {
+  console.log(
+    `🔍 Discovering documents${namespace ? ` in namespace: ${namespace}` : ""}...`
+  );
+  // Simply return documents from database
+  return getAllDocuments(namespace, userId);
 };

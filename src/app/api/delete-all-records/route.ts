@@ -1,25 +1,31 @@
 import { NextResponse } from "next/server";
 import { deleteAllRecords } from "@/lib/rag/pinecone";
-import { clearRegistry } from "@/lib/rag/document-registry";
+import { prisma } from "@/lib/prisma";
 import { formatErrorDetails } from "@/lib/api/error";
 
 /**
  * POST /api/delete-all-records
- * Deletes all records from the Pinecone index and clears the registry/cache
+ * Deletes all records from the Pinecone index and the database
  */
 export async function POST() {
   try {
-    const result = await deleteAllRecords();
+    // Delete all vectors from Pinecone
+    const pineconeResult = await deleteAllRecords();
 
-    // Clear the document registry and cache memory
-    clearRegistry();
-    console.log("✓ Document registry and cache cleared");
+    // Delete all documents and chunks from database
+    const deletedChunks = await prisma.documentChunk.deleteMany({});
+    const deletedDocs = await prisma.document.deleteMany({});
+    
+    console.log(`✓ Deleted ${deletedDocs.count} documents from database`);
+    console.log(`✓ Deleted ${deletedChunks.count} chunks from database`);
 
     return NextResponse.json({
       success: true,
-      message: result.message,
-      registryCleared: true,
-      cacheCleared: true,
+      message: pineconeResult.message,
+      deleted: {
+        documents: deletedDocs.count,
+        chunks: deletedChunks.count,
+      },
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

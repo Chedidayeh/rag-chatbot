@@ -23,15 +23,6 @@ interface MessageListProps {
 }
 
 export const MessageList = ({ messages, isLoading }: MessageListProps) => {
-  const messagesEndRef = React.useRef<HTMLDivElement>(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  React.useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
 
   return (
     <div className="flex flex-col space-y-4 overflow-y-auto p-6 bg-gradient-to-b from-slate-800/20 to-slate-900/20 rounded-lg">
@@ -41,7 +32,7 @@ export const MessageList = ({ messages, isLoading }: MessageListProps) => {
             No messages yet
           </p>
           <p className="text-center text-sm text-slate-500 mt-2">
-            Upload a document and start asking questions to get started
+            Upload a document and start asking questions to get started or chat on existing ones
           </p>
         </div>
       ) : (
@@ -137,8 +128,6 @@ export const MessageList = ({ messages, isLoading }: MessageListProps) => {
           </div>
         </div>
       )}
-
-      <div ref={messagesEndRef} />
     </div>
   );
 };

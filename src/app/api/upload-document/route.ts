@@ -4,9 +4,11 @@ import {
   downloadFileFromUrl,
   cleanupTempFile,
 } from "@/lib/rag/document-processor";
-import { addDocuments } from "@/lib/rag/vectorstore";
-import { registerDocument } from "@/lib/rag/document-registry";
 import { formatErrorDetails } from "@/lib/api/error";
+import { getOrCreateUser, getUserNamespace } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { upsertVectors } from "@/lib/rag/pinecone";
+import { getEmbeddingsInstance } from "@/lib/rag/embeddings";
 
 /**
  * POST /api/upload-document
@@ -15,8 +17,7 @@ import { formatErrorDetails } from "@/lib/api/error";
  * Expected request body:
  * {
  *   "fileUrl": "https://uploadthing.com/file.pdf",
- *   "documentName": "my-document",
- *   "namespace": "default" (optional)
+ *   "documentName": "my-document"
  * }
  */
 export async function POST(request: NextRequest) {
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { fileUrl, documentName, namespace = "default" } = body;
+    const { fileUrl, documentName } = body;
 
     // Validate input
     if (!fileUrl) {
@@ -41,7 +42,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`Processing document: ${documentName} from URL: ${fileUrl}`);
+    // Get authenticated user from session
+    const user = await getOrCreateUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "Failed to create or get user session" },
+        { status: 500 }
+      );
+    }
+
+    const userId = user.id;
+    const namespace = getUserNamespace(userId);
+
+    console.log(
+      `[${userId}] Processing document: ${documentName} from URL: ${fileUrl}`
+    );
 
     // Step 1: Download file from Uploadthing
     const fileName = `${documentName}-${Date.now()}.pdf`;
@@ -57,44 +73,80 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`Generated ${chunks.length} chunks, storing in Pinecone...`);
+    console.log(`[${userId}] Generated ${chunks.length} chunks`);
 
-    // Step 3: Format documents for Pinecone storage
-    const documents = chunks.map((chunk, index) => ({
-      pageContent: chunk.pageContent,
+    // Step 3: Generate embeddings
+    const embeddings = await getEmbeddingsInstance();
+    const vectors = await embeddings.embedDocuments(
+      chunks.map((chunk) => chunk.pageContent)
+    );
+
+    console.log(`[${userId}] Generated embeddings for ${vectors.length} chunks`);
+
+    // Step 4: Create Document record in Prisma with full metadata
+    const documentId = `${documentName}-${Date.now()}`;
+    const uploadedAt = new Date().toISOString();
+    const preview = chunks.length > 0 ? chunks[0].pageContent.substring(0, 200) : "";
+    
+    const dbDocument = await prisma.document.create({
+      data: {
+        userId,
+        documentId,
+        fileName: documentName,
+        fileSize: 0, // Will calculate from chunks if needed
+        fileType: "pdf",
+        totalChunks: chunks.length,
+        pages: chunks[chunks.length - 1]?.metadata?.loc?.pageNumber || 1,
+        storageUrl: fileUrl,
+        vectorized: true,
+        description: `Uploaded on ${new Date().toLocaleDateString()}`,
+        tags: [],
+        namespace,
+        uploadedAt: new Date(uploadedAt),
+        status: "completed",
+        embeddingModel: "gemini-2.5",
+        keywords: [],
+        preview,
+      },
+    });
+
+    console.log(`[${userId}] Created document record: ${dbDocument.id}`);
+    console.log(`[${userId}] Document registry entry created with ID: ${documentId}`);
+
+    // Step 5: Upsert vectors to Pinecone with user namespace
+    const vectorsToUpsert = vectors.map((vector, idx) => ({
+      id: `${dbDocument.id}_chunk_${idx}`,
+      values: vector,
       metadata: {
-        source: chunk.metadata?.source || documentName,
-        page: String(chunk.metadata?.loc?.pageNumber || 0),
-        uploadedAt: chunk.metadata?.uploadedAt || new Date().toISOString(),
-        chunkIndex: String(index),
-        namespace: namespace,
+        documentId: dbDocument.id,
+        userId,
+        chunkIndex: idx,
+        page: chunks[idx]?.metadata?.loc?.pageNumber || 1,
+        text: chunks[idx].pageContent,
+        source: documentName,
       },
     }));
 
-    // Log first document metadata for debugging
-    console.log(
-      `First document metadata:`,
-      JSON.stringify(documents[0]?.metadata)
-    );
-
-    // Step 4: Add documents to Pinecone (embeddings are generated automatically)
-    const insertedIds = await addDocuments(documents);
+    await upsertVectors(vectorsToUpsert, namespace);
 
     console.log(
-      `Successfully stored ${insertedIds.length} documents in Pinecone`
+      `[${userId}] Stored ${vectorsToUpsert.length} vectors in Pinecone`
     );
 
-    // Step 5: Register document in the document registry for tracking
-    await registerDocument({
-      documentId: `${documentName}-${Date.now()}`,
-      fileName: documentName,
-      uploadedAt: new Date().toISOString(),
-      namespace: namespace,
-      totalChunks: chunks.length,
-      status: "completed",
+    // Step 6: Store chunks in database
+    await prisma.documentChunk.createMany({
+      data: chunks.map((chunk, idx) => ({
+        documentId: dbDocument.id,
+        chunkIndex: idx,
+        text: chunk.pageContent,
+        page: chunk.metadata?.loc?.pageNumber,
+        embedding: JSON.stringify(vectors[idx]),
+      })),
     });
 
-    // Step 6: Clean up temporary file
+    console.log(`[${userId}] Stored ${chunks.length} chunks in database`);
+
+    // Step 7: Clean up temporary file
     if (tempFilePath) {
       cleanupTempFile(tempFilePath);
     }
@@ -105,10 +157,10 @@ export async function POST(request: NextRequest) {
         message: `Successfully processed and stored ${chunks.length} chunks from "${documentName}"`,
         stats: {
           totalChunks: chunks.length,
-          totalDocuments: insertedIds.length,
-          namespace,
+          totalVectors: vectorsToUpsert.length,
+          documentId: dbDocument.id,
           documentName,
-          registered: true,
+          namespace,
         },
       },
       { status: 200 }

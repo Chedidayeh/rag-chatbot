@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Pinecone } from "@pinecone-database/pinecone";
 
 /**
@@ -168,6 +169,58 @@ export const deleteAllRecords = async (
     };
   } catch (error) {
     console.error("Error deleting all records from Pinecone:", error);
+    throw error;
+  }
+};
+
+/**
+ * Delete vectors for a specific document
+ * @param documentId - Document ID prefix to match
+ * @param namespace - Namespace to delete from
+ */
+export const deleteVectorsForDocument = async (
+  documentId: string,
+  namespace: string
+) => {
+  try {
+    const index = getPineconeIndex();
+    const ns = index.namespace(namespace);
+
+    // List vectors matching the document prefix
+    const vectorIds: string[] = [];
+    let paginationToken: string | undefined;
+
+    do {
+      const response = await ns.listPaginated({
+        prefix: `${documentId}_chunk_`,
+        paginationToken,
+      });
+
+      if (response.vectors) {
+        vectorIds.push(...response.vectors.map((v) => v.id as string));
+      }
+
+      paginationToken = response.pagination?.next;
+    } while (paginationToken);
+
+    // Delete all vectors for this document
+    if (vectorIds.length > 0) {
+      await ns.deleteMany(vectorIds);
+      console.log(
+        `✓ Successfully deleted ${vectorIds.length} vectors for document ${documentId} from namespace ${namespace}`
+      );
+    } else {
+      console.log(`No vectors found for document ${documentId} in namespace ${namespace}`);
+    }
+
+    return {
+      success: true,
+      deletedCount: vectorIds.length,
+      documentId,
+      namespace,
+    };
+  } catch (error) {
+    console.error("Error deleting vectors for document:", error);
     throw error;
   }
 };
