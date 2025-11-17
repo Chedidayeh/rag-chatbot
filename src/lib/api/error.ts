@@ -44,9 +44,35 @@ export const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
     const msg = error.message || "";
     
-    // Check for specific error types
+    // Extract user-friendly message from Google API errors
+    // Pattern: "... [XXX Error Message]"
+    const bracketMatch = msg.match(/\[([^\]]+)\]/);
+    if (bracketMatch) {
+      const bracketContent = bracketMatch[1];
+      
+      // Check for specific error types in the bracket
+      if (bracketContent.includes("503") || bracketContent.includes("Service Unavailable")) {
+        return "The model is overloaded. Please try again later.";
+      }
+      if (bracketContent.includes("429") || bracketContent.includes("rate limit")) {
+        return "Too many requests. Please wait a moment and try again.";
+      }
+      if (bracketContent.includes("401") || bracketContent.includes("Unauthorized")) {
+        return "Authentication failed. Please check your API keys.";
+      }
+      if (bracketContent.includes("404")) {
+        return "Resource not found. Please check your input.";
+      }
+      
+      // Return just the bracket content if it matches common patterns
+      if (bracketContent.match(/^\d{3}/)) {
+        return bracketContent;
+      }
+    }
+    
+    // Fallback checks on full message
     if (msg.includes("503") || msg.includes("Service Unavailable") || msg.includes("overloaded")) {
-      return "The AI service is currently overloaded. Please try again in a few moments.";
+      return "The model is overloaded. Please try again later.";
     }
     if (msg.includes("429") || msg.includes("rate limit")) {
       return "Too many requests. Please wait a moment and try again.";
