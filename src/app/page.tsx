@@ -6,6 +6,8 @@ import { DocumentUpload } from "@/components/upload/DocumentUpload";
 import { DocumentList } from "@/components/upload/DocumentList";
 import { MessageList } from "@/components/chat/MessageList";
 import { ChatInput } from "@/components/chat/ChatInput";
+import { ErrorMessage } from "@/components/chat/ErrorMessage";
+import { getErrorMessage } from "@/lib/api/error";
 
 interface Message {
   id: string;
@@ -19,6 +21,7 @@ interface Message {
     source: string;
     page: number;
   }>;
+  isError?: boolean;
 }
 
 export default function Home() {
@@ -26,6 +29,8 @@ export default function Home() {
   const [isLoading, setIsLoading] = React.useState(false);
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [documentRefreshTrigger, setDocumentRefreshTrigger] = React.useState(0);
+  const [lastFailedMessage, setLastFailedMessage] = React.useState<string | null>(null);
+  const [conversationHistory, setConversationHistory] = React.useState<Array<{ role: string; content: string }>>([]);
 
   const handleUploadSuccess = async (fileUrl: string, fileName: string) => {
     setIsProcessing(true);
@@ -68,23 +73,26 @@ export default function Home() {
               JSON.stringify(apiError) ||
               "Unknown error";
 
+        const userFriendlyError = getErrorMessage(errorText);
+
         const errorMessage: Message = {
           id: Date.now().toString(),
           role: "assistant",
-          content: `❌ Error uploading document: ${errorText}`,
+          content: userFriendlyError,
           timestamp: new Date(),
+          isError: true,
         };
 
         setMessages((prev) => [...prev, errorMessage]);
       }
     } catch (error) {
+      const userFriendlyError = getErrorMessage(error);
       const errorMessage: Message = {
         id: Date.now().toString(),
         role: "assistant",
-        content: `❌ Error: ${
-          error instanceof Error ? error.message : "Failed to upload document"
-        }`,
+        content: userFriendlyError,
         timestamp: new Date(),
+        isError: true,
       };
 
       setMessages((prev) => [...prev, errorMessage]);
@@ -105,14 +113,15 @@ export default function Home() {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    setLastFailedMessage(null);
     setIsLoading(true);
 
     try {
       // Convert messages to format expected by API (excluding retrievedDocuments)
-      const conversationHistory = messages.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
+      const updatedHistory = [
+        ...conversationHistory,
+        { role: "user", content: message },
+      ];
 
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -121,7 +130,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           message,
-          conversationHistory, // Send conversation history for context
+          conversationHistory: updatedHistory,
         }),
       });
 
@@ -137,6 +146,11 @@ export default function Home() {
         };
 
         setMessages((prev) => [...prev, assistantMessage]);
+        setConversationHistory((prev) => [
+          ...prev,
+          { role: "user", content: message },
+          { role: "assistant", content: data.response },
+        ]);
       } else {
         const apiError = (data as unknown as { error?: unknown }).error;
         const maybeError2 = apiError as { message?: string } | undefined;
@@ -147,28 +161,39 @@ export default function Home() {
               JSON.stringify(apiError) ||
               "Failed to generate response";
 
+        const userFriendlyError = getErrorMessage(errorText);
+
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: `❌ Error: ${errorText}`,
+          content: userFriendlyError,
           timestamp: new Date(),
+          isError: true,
         };
 
         setMessages((prev) => [...prev, errorMessage]);
+        setLastFailedMessage(message);
       }
     } catch (error) {
+      const userFriendlyError = getErrorMessage(error);
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: `❌ Error: ${
-          error instanceof Error ? error.message : "Failed to send message"
-        }`,
+        content: userFriendlyError,
         timestamp: new Date(),
+        isError: true,
       };
 
       setMessages((prev) => [...prev, errorMessage]);
+      setLastFailedMessage(message);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleRetry = async () => {
+    if (lastFailedMessage) {
+      await handleSendMessage(lastFailedMessage);
     }
   };
 
